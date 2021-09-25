@@ -40,5 +40,6 @@ private:
     unsigned long long breakPacketCount{0};
     unsigned long long packetNumberSended{0};
     unsigned long long packetNumberReceived{0};
+    void updateLabels();
 };
 #endif // DIALOG_H

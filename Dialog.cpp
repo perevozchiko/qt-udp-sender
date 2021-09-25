@@ -24,14 +24,17 @@ Dialog::Dialog(QWidget *parent)
     ui->portLineEdit->setText(DefaultPort);
     ui->stopButton->setEnabled(false);
     ui->stopListeningButton->setEnabled(false);
+
     setWindowTitle("UDP");
     resize(320, 370);
+
+    QTime time = QTime::currentTime();
+    qsrand((uint)time.msec());
+
     connect(ui->sendButton, &QPushButton::clicked, this, &Dialog::startSending);
     connect(ui->stopButton, &QPushButton::clicked, this, &Dialog::stopSending);
     connect(ui->startListenButton, &QPushButton::clicked, this, &Dialog::startListening);
     connect(ui->stopListeningButton, &QPushButton::clicked, this, &Dialog::stopListening);
-    QTime time = QTime::currentTime();
-    qsrand((uint)time.msec());
 }
 
 Dialog::~Dialog()
@@ -50,8 +53,6 @@ void Dialog::startSending()
     }
     ui->resendLabel->setText(QString::number(CountPackets) + " packets (every " + QString::number(resendDelay) + " msec)");
 
-    sender = new QUdpSocket(this);
-
     if (resendDelay > 0)
     {
         resendTimer = new QTimer(this);
@@ -65,6 +66,7 @@ void Dialog::startSending()
         ui->sendButton->setText("Sending...");
         setWindowTitle("Sending to " + host + ":" + QString::number(port));
     }
+    sender = new QUdpSocket(this);
     sendData();
 }
 
@@ -74,8 +76,8 @@ void Dialog::stopSending()
     {
         resendTimer->stop();
         disconnect(resendTimer, &QTimer::timeout, this, &Dialog::sendData);
-
     }
+
     resendDelay = 0;
     ui->startListenButton->setEnabled(true);
     ui->sendButton->setEnabled(true);
@@ -124,6 +126,13 @@ void Dialog::sendData()
     ui->sendedPacketsLabel->setText(QString::number(packetNumberSended));
 }
 
+void Dialog::updateLabels()
+{
+    ui->lostPacketLabel->setText(QString::number(lostPacketCount));
+    ui->recievedPacketsLabel->setText(QString::number(packetNumberReceived));
+    ui->breakPacketsLabel->setText(QString::number(breakPacketCount));
+}
+
 void Dialog::onRead()
 {
     if (!listener)
@@ -140,44 +149,41 @@ void Dialog::onRead()
         {
             data.resize(size);
             listener->readDatagram(data.data(), size);
-
             const auto payloadSize = size - PacketNumberSize - CrcSumSize;
 
             uchar expectedCrc = data.mid(size - CrcSumSize, CrcSumSize).at(0);
             uchar actualCrc = calcCheckSum(data.mid(0, size - CrcSumSize));
-            if (expectedCrc == actualCrc)
+
+            if (expectedCrc != actualCrc)
             {
-                const auto numArr = data.mid(payloadSize, size-CrcSumSize);
-                bool ok = false;
-                const auto num = numArr.toLongLong(&ok);
-                if (ok)
-                {
-                    if (num == 0)
-                    {
-                        packetNumberReceived = 0;
-                    }
-                    packetNumberReceived++;
-                    if (packetNumberReceived != num)
-                    {
-                        lostPacketCount++;
-                        packetNumberReceived = num;
-                    }
-                }
-                else
-                {
-                     breakPacketCount++;
-                }
+                breakPacketCount++;
+                continue;
             }
-            else
+
+            const auto numArr = data.mid(payloadSize, size-CrcSumSize);
+            bool ok = false;
+            const auto num = numArr.toLongLong(&ok);
+            if (!ok)
             {
-                 breakPacketCount++;
+                breakPacketCount++;
+                continue;
+            }
+
+            if (num == 0)
+            {
+                packetNumberReceived = 0;
+            }
+            packetNumberReceived++;
+
+            if (packetNumberReceived != num)
+            {
+                lostPacketCount++;
+                packetNumberReceived = num;
             }
         }
     }
 
-    ui->lostPacketLabel->setText(QString::number(lostPacketCount));
-    ui->recievedPacketsLabel->setText(QString::number(packetNumberReceived));
-    ui->breakPacketsLabel->setText(QString::number(breakPacketCount));
+    updateLabels();
 }
 
 void Dialog::startListening()
